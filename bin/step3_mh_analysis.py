@@ -144,29 +144,6 @@ def calculate_microhomology(amplicon, cut_site, deletion_pos, deletion_size):
 
 
 
-#Test function
-# cutSite=33
-# amplicon='GCCCCCACACATATTGGCATGCTGACCCTCTGTCCTAAAACAGAAGTCGACAGATCTGTTTCAGCAACATTCCGGAGCATCCTTGGATACAGCTTCCatctagaattaaaaaataaaataaaataaaagg'
-# calculate_microhomology(amplicon.upper(), cutSite, 12, 7)
-# calculate_microhomology(amplicon.upper(), cutSite, 7, 58)
-
-# ampliconoff='GCCCCCACACATATTGGCATGCTGACCCTCTGTCCTAAAACAGAAGTCGACAGATCTGTTTCAGCAACATTCCGGAGCATCCTTGGATACAGCTTCCaACAGAgaattaaaaaataaaataaaataaaagg'
-# calculate_microhomology(ampliconoff.upper(), cutSite, 7, 58)
-
-# ampliconoff='GCCCCCACACATATTGGCATGCTGACCCTCTGTCCTAAACGACAAGTCGACAGATCTGTTTCAGCAACATTCCGGAGCATCCTTGGATACAGCTTCCatctagaattaaaaaataaaataaaataaaagg'
-# calculate_microhomology(ampliconoff.upper(), cutSite, 12, 7)
-
-# ampliconoff='GCCCCCACACATATTGGCATGCTGACCCTCTGTCCTAAAACAGAAGTCGACTAGTGTGTTTCAGCAACATTCCGGAGCATCCTTGGATACAGCTTCCatctagaattaaaaaataaaataaaataaaagg'
-# calculate_microhomology(ampliconoff.upper(), cutSite, 12, 7)
-
-# cutSite=111
-# amplicon='AGGCTGGTACTTCCAAGGGTACTAGGTGTTGTAGTTTCTTGGTAGGATACATTTGtagaaacatttgaaaatgttcCCTGGGTAGGTAACTCTGGGGTAGCAGTACCGTTGTTGTCAAGACTCATGAACCCAGAAGCTATAGGGAAACGAGGAGGAAGAATCAGAACCTAAAGATATCAGCCTGGTGATATCACCTGATGCAATTTCCTGACTTCAGG'
-# calculate_microhomology(amplicon.upper(), cutSite, -4, 3)
-# calculate_microhomology(amplicon.upper(), cutSite, 1, 10)
-
-
-
-
 def calculate_sample_statistics(df, sample_name):
     """
     Calculate various microhomology statistics for a sample.
@@ -457,6 +434,38 @@ def calculate_combined_scores(df):
     return df_result
 
 
+COLUMNS_TO_DROP = [
+    # insertion/deletion size percentages
+    'ins_gt4_pct', 'ins_gt9_pct', 'ins_gt14_pct',
+    'del_gt4_pct', 'del_gt9_pct', 'del_gt14_pct',
+    # MH percentages
+    'nhej_pct', 'mh_1_plus_pct', 'mh_2_plus_pct', 'mh_1p_off_pct', 'mh_2p_off_pct',
+    # long deletion count
+    'long_del_9plus',
+    # f-scores (sample & universal, both thresholds)
+    'f1_sample', 'f1_universal', 'f2_sample', 'f2_universal',
+    'f3_sample', 'f4_sample', 'f4_universal', 'f5_sample', 'f5_universal',
+    'f1_thr2_sample', 'f1_thr2_universal', 'f2_thr2_sample', 'f2_thr2_universal',
+    'f3_thr2_sample', 'f4_thr2_sample', 'f4_thr2_universal', 'f5_thr2_sample', 'f5_thr2_universal',
+    # c-scores (sample)
+    'c1_sample', 'c2_sample', 'c3_sample',
+    'c14_sample', 'c24_sample', 'c34_sample',
+    'c15_sample', 'c25_sample', 'c35_sample',
+    'c1_thr2_sample', 'c2_thr2_sample', 'c3_thr2_sample',
+    'c14_thr2_sample', 'c24_thr2_sample', 'c34_thr2_sample',
+    'c15_thr2_sample', 'c25_thr2_sample', 'c35_thr2_sample',
+    # c-scores (universal, subset)
+    'c3_universal', 'c34_universal', 'c35_universal',
+    'c3_thr2_universal', 'c34_thr2_universal', 'c35_thr2_universal',
+]
+
+
+def drop_unwanted_columns(df):
+    """Drop columns listed in COLUMNS_TO_DROP if they exist in the DataFrame."""
+    cols_present = [c for c in COLUMNS_TO_DROP if c in df.columns]
+    return df.drop(columns=cols_present)
+
+
 def main():
     """Main function to run the microhomology analysis."""
     
@@ -523,10 +532,8 @@ def main():
         stats = calculate_sample_statistics(results_df, sample)
         
         # Normalized scores
-        #norm_scores = calculate_normalized_scores(results_df, sample)
         norm_scores = calculate_mh_scores(results_df, sample)
 
-        
         # Combine all statistics
         combined_stats = {**stats, **norm_scores}
         sample_stats.append(combined_stats)
@@ -535,9 +542,10 @@ def main():
     final_stats_df = pd.DataFrame(sample_stats)
     
     print("Saving results...")
-    # Save results
+    # Save results — drop unwanted columns at save time only,
+    # keeping final_stats_df intact for the merge step below
     results_df.to_csv('deletion_microhomology_detailed.csv', index=False)
-    final_stats_df.to_csv('sample_microhomology_summary.csv', index=False)
+    drop_unwanted_columns(final_stats_df).to_csv('sample_microhomology_summary.csv', index=False)
     
     print("Detailed results saved to: deletion_microhomology_detailed.csv")
     print("Sample summary saved to: sample_microhomology_summary.csv")
@@ -553,10 +561,13 @@ def main():
     print("Merging with step2 summary and save to: merged_summary.csv")
     try:
         step2_df = pd.read_csv("summary_df.tsv", sep="\t")
+        # Merge using the full final_stats_df (f-scores still present, needed by calculate_combined_scores)
         merged_df = pd.merge(step2_df, final_stats_df, on="sample", how="outer")
         
-        # Calculate combined scores
+        # Calculate combined scores (requires f-score columns)
         merged_df_c = calculate_combined_scores(merged_df)
+        # Drop unwanted columns before saving
+        merged_df_c = drop_unwanted_columns(merged_df_c)
         # Save results csv
         merged_df_c.to_csv("merged_summary.csv", index=False)
     
