@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/1197171937.svg)](https://doi.org/10.5281/zenodo.19556421)
+
 # CAAVIAR (CRISPR AAV Integration And Repair)
 
 Amplicon-seq pipeline for CRISPR indel analysis with further characterisation of AAV vector integrations, insertions/deletions characteristics and microhomology-mediated repair.
