@@ -58,6 +58,17 @@ flowchart TB
     GATHER --> REPORT
     STEP1 --> REPORT
 
+    %% Styling
+    classDef inputStyle fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef processStyle fill:#fff3e0,stroke:#ef6c00
+    classDef branchStyle fill:#f3e5f5,stroke:#7b1fa2
+    classDef finalStyle fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px
+
+    class reads,genome inputStyle
+    class TRIM,MERGE,FILTER_AMP,STEP1,STEP2,STEP3,MAP,FILTER_MAP,GATHER processStyle
+    class COUNT_RAW,BLAST,INDEX branchStyle
+    class REPORT finalStyle
+
 ```
 ## File structure
 
