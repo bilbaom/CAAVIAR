@@ -16,7 +16,7 @@ flowchart TB
     genome["Genome FASTA"]
 
     %% Core pipeline
-    COUNT_RAW["COUNT_RAW_READS]
+    COUNT_RAW["COUNT_RAW_READS"]
     TRIM["TRIM_READS"]
     MERGE["MERGE_READS"]
     FILTER_AMP["FILTER_AMPLICONS"]
