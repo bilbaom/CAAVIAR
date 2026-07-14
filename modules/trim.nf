@@ -3,9 +3,9 @@
 
 process TRIM_READS {
 
-    tag "$name"   // shows sample name in the log  e.g. [TRIM_READS (SRR123)]
+    tag { "$name" }   // shows sample name in the log  e.g. [TRIM_READS (SRR123)]
 
-    publishDir "${params.outdir}/bbtools_cleaned", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/bbtools_cleaned" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(name), path(r1), path(r2)

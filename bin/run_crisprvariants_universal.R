@@ -105,7 +105,10 @@ for (param_name in param_dirs) {
                                   chimeras = treat.chimeras,
                                   collapse.pairs = FALSE,
                                   chimera.to.target = 200,
-                                  minoverlap = nchar(amplicon)/2)
+                                  minoverlap = nchar(amplicon)/2,
+                                  split.snv = TRUE,
+                                  upstream.snv = 20,
+                                  downstream.snv = 20)
       
       # Calculate mutation efficiency
       mut_eff <- mutationEfficiency(crispr.set)

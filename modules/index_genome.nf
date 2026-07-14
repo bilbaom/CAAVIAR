@@ -3,10 +3,10 @@
 
 process INDEX_GENOME {
 
-    tag "${genome_fasta.baseName}"
+    tag {"${genome_fasta.baseName}" }
 
     // Optionally publish the index so you can reuse it in future runs without rebuilding
-    publishDir "${params.outdir}/reference", mode: 'copy', overwrite: true
+    publishDir {"${params.outdir}/reference" }, mode: 'copy', overwrite: true
 
     input:
     path genome_fasta

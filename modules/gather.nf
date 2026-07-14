@@ -9,13 +9,14 @@
 
 process GATHER_RESULTS {
 
-    tag "gather"
+    tag { "gather" }
 
-    publishDir "${params.outdir}", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}" }, mode: 'copy', overwrite: true
 
     input:
     path summaries    // all merged_summary.csv files (collected)
     path aav_counts   // all *_aavcount.txt files (collected)
+    path raw_counts   // all *_raw_read_count.txt files (collected)
 
     output:
     path "all_results_merged_summary.csv", emit: gathered_csv

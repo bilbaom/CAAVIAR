@@ -58,6 +58,16 @@ def gather_results():
                     if content:
                         aav_count = int(content.split()[0])
             
+            # Look for raw read count file
+            raw_count_file = Path('.') / f"{sample_name}_raw_read_count.txt"
+            raw_reads = None
+            if raw_count_file.exists():
+                with open(raw_count_file, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        raw_reads = int(content.split()[0])
+            
+            df.insert(1, 'Raw_Reads', raw_reads)
             df['BLAST_AAV'] = aav_count
             data_frames.append(df)
             

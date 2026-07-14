@@ -9,9 +9,9 @@
 
 process STEP2_INSERTIONS {
 
-    tag "${name}"
+    tag { "${name}" }
 
-    publishDir "${params.outdir}/results/${params.param_dir}/${name}", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/results/${params.param_dir}/${name}" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(name), path(restable), path(instable)

@@ -9,56 +9,8 @@ nextflow.enable.dsl=2
 //   nextflow run main.nf -resume ...
 // ============================================================
 
-// ---------- Only these two are passed on the command line ----------
-params.csv         = null
-params.config_file = null
-
-// ---------- Validate required inputs ----------
-if (!params.csv)         error "Please provide --csv <SraRunTable.csv>"
-if (!params.config_file) error "Please provide --config_file <mhaav25_config_*.sh>"
-
-// ---------- Parse the shell config file into a Groovy map ----------
-def parseCfg(path) {
-    def map = [:]
-    new File(path).eachLine { line ->
-        def m = line =~ /^\s*(\w+)\s*=\s*['"]?([^'"#\n]*)['"]?\s*(?:#.*)?$/
-        if (m) map[m[0][1]] = m[0][2].trim()
-    }
-    return map
-}
-def cfg = parseCfg(params.config_file)
-
-def require = { map, key ->
-    if (!map.containsKey(key) || !map[key])
-        error "Required variable '${key}' not found in config file"
-    return map[key]
-}
-
-// --- Experiment-specific ---
-params.fw           = require(cfg, 'fw')
-params.rev          = require(cfg, 'rev')
-params.amplicon     = require(cfg, 'amplicon')
-params.cutSite      = require(cfg, 'cutSite')
-params.blat_T_name  = require(cfg, 'blat_T_name')
-params.blat_T_start = require(cfg, 'blat_T_start')
-params.blat_T_end   = require(cfg, 'blat_T_end')
-params.restable     = require(cfg, 'restable')
-params.instable     = require(cfg, 'instable')
-
-// --- Paths ---
-params.fastq_dir    = require(cfg, 'fastq_dir')
-params.genome_fasta = require(cfg, 'genome_fasta')
-params.outdir       = require(cfg, 'outdir')
-
-// --- minimap2 scoring params ---
-params.minimap_A    = require(cfg, 'minimap_A')
-params.minimap_B    = require(cfg, 'minimap_B')
-params.minimap_O    = require(cfg, 'minimap_O')
-params.minimap_E    = require(cfg, 'minimap_E')
-
-// Convenience label used in publishDir paths across modules
-params.param_dir = "A${params.minimap_A}_B${params.minimap_B}_O${params.minimap_O}_E${params.minimap_E}"
-                       .replace(',', '_')
+// ---------- Declare other pipeline parameters ----------
+params.param_dir = "A${params.minimap_A}_B${params.minimap_B}_O${params.minimap_O}_E${params.minimap_E}".replace(',', '_')
 
 // ============================================================
 // MODULES
@@ -75,12 +27,18 @@ include { STEP1_CALL_INDELS } from './modules/step1_call_indels.nf'
 include { STEP2_INSERTIONS  } from './modules/step2.nf'
 include { STEP3_MH          } from './modules/step3.nf'
 include { GATHER_RESULTS    } from './modules/gather.nf'
+include { GENERATE_REPORT   } from './modules/report.nf'
+include { COUNT_RAW_READS   } from './modules/count_raw_reads.nf'
 
 // ============================================================
 // WORKFLOW
 // ============================================================
 
 workflow {
+
+    // Validate inputs and load all derived params from the config file.
+    // This has to run inside workflow{} (not at top level) under the
+    // strict script parser used by Nextflow 26.x.
 
     // ----------------------------------------------------------
     // 1. Build sample channel from CSV
@@ -109,6 +67,7 @@ workflow {
     // ----------------------------------------------------------
     // 3. Trim → Merge → Filter amplicons  (per sample, parallel)
     // ----------------------------------------------------------
+    COUNT_RAW_READS(fastqs_ch)
     TRIM_READS(fastqs_ch)
     MERGE_READS(TRIM_READS.out.trimmed)
     FILTER_AMPLICONS(MERGE_READS.out.merged)
@@ -192,9 +151,22 @@ workflow {
         .map { name, txt -> txt }
         .collect()
 
-    GATHER_RESULTS(all_summaries_ch, all_aav_counts_ch)
+    all_raw_counts_ch = COUNT_RAW_READS.out.count
+        .map { name, txt -> txt }
+        .collect()
+
+    GATHER_RESULTS(all_summaries_ch, all_aav_counts_ch, all_raw_counts_ch)
+
+    // ----------------------------------------------------------
+    // 9. Generate final HTML report
+    // ----------------------------------------------------------
+    Channel.of(new groovy.json.JsonBuilder(params).toPrettyString())
+        .collectFile(name: 'pipeline_params.json')
+        .set { params_json_ch }
+
+    GENERATE_REPORT(GATHER_RESULTS.out.gathered_csv, STEP1_CALL_INDELS.out.alignment_plots.collect(), params_json_ch)
 
     // Label the terminal output so the DAG renders it correctly
-    GATHER_RESULTS.out.gathered_csv
-        .view { f -> "Pipeline complete → ${f}" }
+    GENERATE_REPORT.out.report_html
+        .view { f -> "Pipeline complete -> ${f}" }
 }

@@ -4,7 +4,7 @@
 
 process MAP_READS {
 
-    tag "$name"
+    tag { "$name" }
 
     input:
     tuple val(name), path(filtered_fastq)

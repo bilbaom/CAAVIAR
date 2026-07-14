@@ -11,9 +11,9 @@
 
 process STEP1_CALL_INDELS {
 
-    tag "all_samples"
+    tag { "all_samples" }
 
-    publishDir "${params.outdir}/results", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/results" }, mode: 'copy', overwrite: true
 
     input:
     path bam_files              // all BAMs staged into work dir (collected)
@@ -32,7 +32,9 @@ process STEP1_CALL_INDELS {
     // Emit the entire param_dir subtree.
     // main.nf maps sample names onto their specific files from here.
     path "results/${param_dir}",  emit: results_dir
-
+	path "results/${param_dir}/*/${restable}", emit: restables
+	path "results/${param_dir}/*/${instable}", emit: instables
+	path "results/${param_dir}/*/*_alignments.png", emit: alignment_plots
     script:
     """
     # Recreate the bam/<param_dir>/ structure the R script expects,

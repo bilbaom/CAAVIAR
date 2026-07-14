@@ -6,9 +6,9 @@
 
 process STEP3_MH {
 
-    tag "${name}"
+    tag { "${name}" }
 
-    publishDir "${params.outdir}/results/${params.param_dir}/${name}", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/results/${params.param_dir}/${name}" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(name), path(events_tsv), path(summary_tsv)

@@ -6,9 +6,9 @@
 
 process FILTER_MAPPINGS {
 
-    tag "$name"
+    tag { "$name" }
 
-    publishDir "${params.outdir}/bam/${params.param_dir}", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/bam/${params.param_dir}" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(name), path(bam)

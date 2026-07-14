@@ -4,9 +4,9 @@
 
 process FILTER_AMPLICONS {
 
-    tag "$name"
+    tag { "$name" }
 
-    publishDir "${params.outdir}/merged_reads", mode: 'copy', overwrite: true
+    publishDir { "${params.outdir}/merged_reads" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(name), path(merged_fastq)

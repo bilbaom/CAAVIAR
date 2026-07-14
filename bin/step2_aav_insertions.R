@@ -40,9 +40,12 @@ classify_indels <- function(cigar_labels) {
 
 # Function to expand dataframe by splitting comma-separated IDs
 expand_dataframe_by_ids <- function(df) {
+  # Safeguard for samples with 0 rows (like controls)
+  if (nrow(df) == 0) return(df)
+  
   expanded_rows <- list()
   for (i in 1:nrow(df)) {
-    ids <- trimws(unlist(strsplit(df$idxs[i], ",")))
+    ids <- trimws(unlist(strsplit(as.character(df$idxs[i]), ",")))
     n_ids <- length(ids)
     expanded_row <- df[rep(i, n_ids), ]
     expanded_row$idxs <- ids
@@ -55,6 +58,12 @@ expand_dataframe_by_ids <- function(df) {
 
 # Function to compress df by id and keep all sequences
 merge_by_sample_id <- function(df, id_col = "idxs", sample_col = "sample", seq_col = "seq", type_col = "type", cigar_col = "cigar_label") {
+  # Safeguard for samples with 0 rows
+  if (nrow(df) == 0) {
+    df$sample_id <- character(0)
+    return(df)
+  }
+  
   df$sample_id <- paste(df[[sample_col]], df[[id_col]], sep = "_")
   result <- aggregate(
     df[[seq_col]], 

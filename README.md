@@ -1,5 +1,3 @@
-[![DOI](https://zenodo.org/badge/1197171937.svg)](https://doi.org/10.5281/zenodo.19556421)
-
 # CAAVIAR (CRISPR AAV Integration And Repair)
 
 Amplicon-seq pipeline for CRISPR indel analysis with further characterisation of AAV vector integrations, insertions/deletions characteristics and microhomology-mediated repair.
@@ -30,6 +28,7 @@ flowchart TB
     STEP2["STEP2_INSERTIONS"]
     STEP3["STEP3_MH"]
     GATHER["GATHER_RESULTS"]
+    REPORT["GENERATE_REPORT"]
 
     %% Flow
     reads --> TRIM
@@ -53,6 +52,7 @@ flowchart TB
     %% Merge results
     STEP3 --> GATHER
     BLAST --> GATHER
+    GATHER --> REPORT
 
 ```
 ## File structure
@@ -64,11 +64,12 @@ flowchart TB
 │     ├── run_crisprvariants_universal.R
 │     ├── step2_aav_insertions.R
 │     ├── step3_mh_analysis.py
-│     └── gather_results.py
+│     ├── gather_results.py
+│     └── generate_html_report.py
 ├── assets/
 │     ├── blast_db/
-│     ├── samples.csv
-│     └── target_config.sh
+│     ├── samples_example.csv
+│     └── target_config_example.config
 └── modules/
       ├── trim.nf
       ├── merge.nf
@@ -80,7 +81,8 @@ flowchart TB
       ├── step1_call_indels.nf
       ├── step2.nf
       ├── step3.nf
-      └── gather.nf
+      ├── gather.nf
+      └── report.nf
 ```
 
 ## Requirements
@@ -92,18 +94,18 @@ flowchart TB
 
 ## Parameters & target configuration
 
-All pipeline parameters (except `--csv` and `--config_file`) should be defined in the `.sh` target config file. 
+All pipeline parameters, including the path to the samples CSV, are provided via a Nextflow configuration file (e.g. `.config`). 
 
-| Parameter      | Default                          | Description                          |
-|----------------|----------------------------------|--------------------------------------|
-| `--csv`        | *(required)* | Path to samples CSV                  |
-| `--config_file`| *(required)* | Path to target_config.sh             |
+| Parameter | Default | Description |
+|---|---|---|
+| `-c` | *(required)* | Path to the target configuration file (e.g. `target_config_example.config`) |
 
-### Target Configuration File (`target_config.sh`)
+### Target Configuration File (`.config`)
 
-The configuration file with experiment-specific variables is organized into the following sections:
+The configuration file is a Nextflow config containing a `params` block with experiment-specific variables, organized into the following sections:
 
 **1. Paths**
+* `csv`: Path to the samples CSV file.
 * `fastq_dir`: Directory containing input sequencing reads.
 * `genome_fasta`: Path to the reference genome sequence (`.fna` or `.fasta`).
 * `outdir`: Directory where the pipeline will publish its results.
@@ -113,15 +115,21 @@ The configuration file with experiment-specific variables is organized into the 
 * `rev`: Reverse primer sequence.
 
 **3. Target site (Quantification window)**
-* `blat_T_name`: The reference chromosome or contig name (e.g., `"NC_000068.7"`).
-* `blat_T_start` / `blat_T_end`: The genomic start and end coordinates defining the filtering window. Reads must overlap these boundaries to be kept.
-*  `amplicon`: The exact sequence of the target region where indels are quantified (usually +/- 50 bases around cut site).
-* `cutSite`: The numerical position (integer) of the CRISPR cut site within the quanifiaction window sequence.
 
-The following command should output the quantification window sequence:
-```
-samtools faidx reference_genomic.fna blat_T_name:blat_T_start-blat_T_end
-```
+You can specify the target location using either a full reference genome or a custom amplicon sequence.
+
+* **Using a full genome:** 
+  Set `blat_T_name` to the chromosome/contig name (e.g., `"NC_000068.7"`), and `blat_T_start` / `blat_T_end` to the exact genomic coordinates of your filtering window. The following command should output your quantification window sequence:
+  ```bash
+  samtools faidx reference_genomic.fna blat_T_name:blat_T_start-blat_T_end
+  ```
+
+* **Using a custom amplicon FASTA:** 
+  Instead of a full genome, you can point `genome_fasta` (in the Paths section) to a single-entry FASTA file containing exactly the amplicon sequence (from the forward to the reverse primer). In this case, set `blat_T_name` to the FASTA entry header (without the `>`), `blat_T_start` to `1`, and `blat_T_end` to the total length of your amplicon sequence.
+
+**For both methods, you must define the exact region for indel quantification:**
+* `amplicon`: The exact sequence of the target region where indels are quantified (usually +/- 50 bases around the cut site).
+* `cutSite`: The numerical position (integer) of the CRISPR cut site within the `amplicon` sequence.
 
 
 **4. CrispRVariants output filenames**
@@ -140,15 +148,13 @@ The defaults are specifically optimized for detecting AAV insertions:
 ```bash
 nextflow run main.nf \
     -profile local \
-    --csv samples.csv \
-    --config_file target_config.sh
+    -c /path/to/target_config.config
 ```
 ### On SLURM (HPC)
 ```bash
 nextflow run main.nf \
     -profile slurm \
-    --csv samples.csv \
-    --config_file target_config.sh
+    -c /path/to/target_config.config
 ```
 
 ## Output directory layout
@@ -166,5 +172,6 @@ results_nextflow/
       all_events_del.tsv            ← parsed deletions
       <sample>_merged_summary.csv   ← AAV + microhomology stats
   all_results_merged_summary.csv    ← Final combined analysis for all samples
+  pipeline_report.html              ← Interactive HTML report with summary plots
 
 ```
