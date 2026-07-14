@@ -16,6 +16,7 @@ flowchart TB
     genome["Genome FASTA"]
 
     %% Core pipeline
+    COUNT_RAW["COUNT_RAW_READS]
     TRIM["TRIM_READS"]
     MERGE["MERGE_READS"]
     FILTER_AMP["FILTER_AMPLICONS"]
@@ -31,6 +32,7 @@ flowchart TB
     REPORT["GENERATE_REPORT"]
 
     %% Flow
+    reads --> COUNT_RAW
     reads --> TRIM
     TRIM --> MERGE
     MERGE --> FILTER_AMP
@@ -51,8 +53,10 @@ flowchart TB
 
     %% Merge results
     STEP3 --> GATHER
+    COUNT_RAW --> GATHER
     BLAST --> GATHER
     GATHER --> REPORT
+    STEP1 --> REPORT
 
 ```
 ## File structure
@@ -71,6 +75,7 @@ flowchart TB
 │     ├── samples_example.csv
 │     └── target_config_example.config
 └── modules/
+      ├── count_raw_reads.nf
       ├── trim.nf
       ├── merge.nf
       ├── filter_amplicons.nf
@@ -125,7 +130,7 @@ You can specify the target location using either a full reference genome or a cu
   ```
 
 * **Using a custom amplicon FASTA:** 
-  Instead of a full genome, you can point `genome_fasta` (in the Paths section) to a single-entry FASTA file containing exactly the amplicon sequence (from the forward to the reverse primer). In this case, set `blat_T_name` to the FASTA entry header (without the `>`), `blat_T_start` to `1`, and `blat_T_end` to the total length of your amplicon sequence.
+  Instead of a full genome, you can point `genome_fasta` (in the Paths section) to a single-entry FASTA file containing exactly the amplicon sequence (from the forward to the reverse primer).
 
 **For both methods, you must define the exact region for indel quantification:**
 * `amplicon`: The exact sequence of the target region where indels are quantified (usually +/- 50 bases around the cut site).
