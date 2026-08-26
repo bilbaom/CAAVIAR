@@ -125,6 +125,23 @@ The configuration file is a Nextflow config containing a `params` block with exp
 * `fastq_dir`: Directory containing input sequencing reads.
 * `genome_fasta`: Path to the reference genome sequence (`.fna` or `.fasta`).
 * `outdir`: Directory where the pipeline will publish its results.
+* `blast_db`: Path to the BLAST database prefix for AAV vector sequences (default: `${projectDir}/assets/blast_db/blastdb`).
+
+### Samples CSV Format & FASTQ Naming
+
+**Samples CSV File (`samples.csv`)**
+The samples CSV file must contain a header row with at least a `Run` column specifying each sample identifier:
+```csv
+Run,Group
+Sample1,GroupA
+Sample2,GroupB
+```
+*(Optional columns such as `Group` or `Library` are preserved for metadata grouping).*
+
+**FASTQ File Naming**
+FASTQ files in `fastq_dir` must follow one of these paired-end naming conventions matching the `Run` sample ID:
+* `<Run>_1.fastq.gz` and `<Run>_2.fastq.gz`
+* `<Run>_R1_001.fastq.gz` and `<Run>_R2_001.fastq.gz`
 
 **2. Amplicon primers**
 * `fw`: Forward primer sequence (used by seqkit for amplicon filtering).
@@ -148,8 +165,9 @@ You can specify the target location using either a full reference genome or a cu
 * `cutSite`: The numerical position (integer) of the CRISPR cut site within the `amplicon` sequence.
 
 
-**4. CrispRVariants output filenames**
-* `restable` / `instable`: Internal filenames for the variant and insertion tables. No need to change these (defaults are `"results.csv"` and `"insertions.csv"`).
+**4. CrispRVariants & Variant Calling**
+* `restable` / `instable`: Internal filenames for the variant and insertion tables (defaults: `"results.csv"` and `"insertions.csv"`).
+* `keep_snvs`: Set `true` to classify and report Single Nucleotide Variants (SNVs) separately; default is `false` (SNVs are merged into `"no variant"`).
 
 **5. minimap2 alignment scoring**
 The defaults are specifically optimized for detecting AAV insertions:
@@ -175,19 +193,30 @@ nextflow run main.nf \
 
 ## Output directory layout
 
-```
+```text
 results_nextflow/
+  raw_counts/
+    <sample>_raw_read_count.txt          ← Raw read counts
   bbtools_cleaned/
+    <sample>_clean_R1.fq.gz              ← Quality and adapter trimmed FASTQs
+    <sample>_clean_R2.fq.gz
   merged_reads/
+    <sample>.extendedFrags.fastq         ← Merged paired-end reads (FLASH)
+    <sample>.extendedFrags.ont.fastq     ← Amplicon-filtered merged reads (seqkit)
+    <sample>_aavcount.txt                ← BLAST AAV read count
+  reference/
+    <genome>.mmi                         ← minimap2 reference genome index
   bam/A4_B27_O32_E1/
+    <sample>_mapped_clean.bam            ← Filtered on-target BAM alignment
+    <sample>_mapped_clean.bam.bai        ← BAM index
   results/A4_B27_O32_E1/
     <sample>/
-      results.csv                   ← CrispRVariants allele frequencies
-      insertions.csv                ← CrispRVariants raw insertions
-      <sample>_alignments.png       ← CrispRVariants alignment plot
-      all_events_del.tsv            ← parsed deletions
-      <sample>_merged_summary.csv   ← AAV + microhomology stats
-  all_results_merged_summary.csv    ← Final combined analysis for all samples
-  pipeline_report.html              ← Interactive HTML report with summary plots
-
+      results.csv                        ← CrispRVariants allele frequencies
+      insertions.csv                     ← CrispRVariants raw insertions
+      <sample>_<param_dir>_alignments.png ← CrispRVariants alignment plot
+      all_events_del.tsv                 ← Parsed deletion events
+      summary_df.tsv                     ← Intermediate AAV insertion & indel summary
+      <sample>_merged_summary.csv        ← Combined AAV + microhomology stats per sample
+  all_results_merged_summary.csv         ← Final combined analysis table for all samples
+  pipeline_report.html                   ← Interactive HTML report with summary plots
 ```

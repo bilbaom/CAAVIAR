@@ -108,7 +108,8 @@ workflow {
         params.blat_T_end,
         params.restable,
         params.instable,
-        params.param_dir
+        params.param_dir,
+        params.keep_snvs
     )
 
     // ----------------------------------------------------------
@@ -127,6 +128,12 @@ workflow {
             def restable = file("${results_dir}/${name}/${params.restable}")
             def instable = file("${results_dir}/${name}/${params.instable}")
             tuple(name, restable, instable)
+        }
+        // Skip samples for which STEP1 did not produce output files
+        .filter { name, restable, instable ->
+            def ok = restable.exists() && instable.exists()
+            if (!ok) log.warn "STEP1 produced no results for sample '${name}' — skipping STEP2/STEP3."
+            ok
         }
         // emits: tuple(name, restable_path, instable_path)
 
@@ -155,7 +162,7 @@ workflow {
         .map { name, txt -> txt }
         .collect()
 
-    GATHER_RESULTS(all_summaries_ch, all_aav_counts_ch, all_raw_counts_ch)
+    GATHER_RESULTS(all_summaries_ch, all_aav_counts_ch, all_raw_counts_ch, file(params.csv))
 
     // ----------------------------------------------------------
     // 9. Generate final HTML report
@@ -164,9 +171,10 @@ workflow {
         .collectFile(name: 'pipeline_params.json')
         .set { params_json_ch }
 
-    GENERATE_REPORT(GATHER_RESULTS.out.gathered_csv, STEP1_CALL_INDELS.out.alignment_plots.collect(), params_json_ch)
+    GENERATE_REPORT(GATHER_RESULTS.out.gathered_csv, STEP1_CALL_INDELS.out.alignment_plots.collect(), params_json_ch, file(params.csv))
 
     // Label the terminal output so the DAG renders it correctly
     GENERATE_REPORT.out.report_html
         .view { f -> "Pipeline complete -> ${f}" }
 }
+

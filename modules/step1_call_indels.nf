@@ -27,6 +27,7 @@ process STEP1_CALL_INDELS {
     val  restable               // results output filename
     val  instable               // insertions output filename
     val  param_dir              // minimap2 param label, e.g. A5_B4_O25_E1
+    val  keep_snvs              // true = keep SNVs as separate category; false = merge into 'no variant'
 
     output:
     // Emit the entire param_dir subtree.
@@ -58,6 +59,7 @@ process STEP1_CALL_INDELS {
         ${t_start}     \\
         ${t_end}       \\
         ${restable}    \\
-        ${instable}
+        ${instable}    \\
+        ${keep_snvs}
     """
 }

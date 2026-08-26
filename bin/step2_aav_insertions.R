@@ -103,14 +103,29 @@ extract_sequences_to_fasta <- function(df, seq_col = "seq", min_length = 14, out
 
 #### 0: OPEN VARIANT COUNTS AND INSERTIONS ####
 varcounts <- read.table(resname, sep = "\t", header = T)
-insseq <- read.table(insname, sep = "\t", header = T)
+# Guard against empty/unreadable insertions file (e.g. written when CrispRVariants finds no insertions).
+# write.table(data.frame(), ...) can produce a 0-byte or newline-only file that read.table rejects.
+insseq <- tryCatch(
+  read.table(insname, sep = "\t", header = TRUE),
+  error = function(e) {
+    message("Note: insertions file is empty or unreadable — no insertions for this sample.")
+    data.frame(sample      = integer(),
+               cigar_label = character(),
+               seq         = character(),
+               idxs        = character(),
+               count       = integer(),
+               stringsAsFactors = FALSE)
+  }
+)
 
 #### 1: PARSE INSERTIONS ####
 last_col <- colnames(varcounts)[ncol(varcounts)]
-if ("insertion" %in% varcounts[[last_col]]) {
-  colnames(varcounts)[ncol(varcounts)] <- "byType.g1"
-} else {
-  stop("Error: no 'insertion' value found in the last column.")
+colnames(varcounts)[ncol(varcounts)] <- "byType.g1"
+
+# Samples with no insertion variants (e.g. SNV-only or deletion-only)
+# are handled gracefully: AAV insertion count will be 0.
+if (!"insertion" %in% varcounts[["byType.g1"]]) {
+  message("Note: no 'insertion' variants found in this sample. AAV insertion count will be 0.")
 }
 
 samplenames <- colnames(varcounts)[-length(colnames(varcounts))]
@@ -156,7 +171,7 @@ blast_file <- "blastResults.csv"
 
 if (!has_sequences || !file.exists(blast_file) || file.info(blast_file)$size == 0) {
   message("No BLAST results. Setting AAV insertions = 0.")
-  insseq_merged$aavins <- 0
+  insseq_merged$aavins <- rep(0, nrow(insseq_merged))
   totalins <- data.frame(Var1 = samplenames, Var2 = TRUE, Freq = 0)
 } else {
   blastResults <- read.table(blast_file, sep = "\t", header = FALSE)
@@ -188,7 +203,8 @@ existing_categories <- rownames(cat_reads)
 complete_cat_reads[existing_categories, ] <- cat_reads
 cat_reads <- complete_cat_reads
 
-edited_reads <- total_reads - cat_reads["no_variant", ]
+no_variant_reads <- if ("no_variant" %in% rownames(cat_reads)) cat_reads["no_variant", ] else rep(0, length(samplenames))
+edited_reads <- total_reads - no_variant_reads
 cat_pct <- sweep(cat_reads, 2, total_reads, "/") * 100
 edited_reads_pct <- (edited_reads / total_reads) * 100
 
@@ -312,7 +328,8 @@ for (i in seq_along(indel_strings_del)) {
 
 if (length(all_events_del) > 0) {
   all_events_del <- do.call(rbind, all_events_del)
-  write.table(all_events_del, file = "all_events_del.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 } else {
-  cat("No deletion events found to write.\n")
+  message("No deletion events found. Writing empty all_events_del.tsv.")
+  all_events_del <- data.frame(pos = integer(), size = integer(), type = character(), sample = character(), stringsAsFactors = FALSE)
 }
+write.table(all_events_del, file = "all_events_del.tsv", sep = "\t", quote = FALSE, row.names = FALSE)

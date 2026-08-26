@@ -18,7 +18,7 @@ process STEP2_INSERTIONS {
     val  blast_db               // path to BLAST db prefix
 
     output:
-    tuple val(name), path("all_events_del.tsv"), path("summary_df.tsv"), emit: events
+    tuple val(name), path("all_events_del.tsv", optional: true), path("summary_df.tsv"), emit: events
 
     script:
     """

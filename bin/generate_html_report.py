@@ -44,6 +44,34 @@ def safe_col(df, col):
     return pd.Series([0.0] * len(df), index=df.index)
 
 
+def load_sample_order(csv_path):
+    """
+    Extract sample names in order from a sample sheet CSV.
+    """
+    if not csv_path or not os.path.exists(csv_path):
+        return None
+    try:
+        df_samples = pd.read_csv(csv_path)
+        sample_cols = ['Run', 'sample_name', 'Sample_Name', 'sample', 'Sample', 'sample_id', 'Sample_ID', 'id', 'ID', 'name', 'Name']
+        target_col = None
+        for col in sample_cols:
+            if col in df_samples.columns:
+                target_col = col
+                break
+        if target_col is None and len(df_samples.columns) > 0:
+            target_col = df_samples.columns[0]
+            
+        if target_col:
+            order = []
+            for val in df_samples[target_col].dropna():
+                s = str(val).strip()
+                if s and s not in order:
+                    order.append(s)
+            return order
+    except Exception as e:
+        print(f"Warning: Could not parse sample order from CSV {csv_path}: {e}")
+    return None
+
 # ---------------------------------------------------------------------------
 # Individual plot functions — no group logic, one bar per sample
 # ---------------------------------------------------------------------------
@@ -82,13 +110,15 @@ def plot_basic_stats_panel(df, samples):
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
     axes = axes.flatten() if nrows > 1 else (axes if hasattr(axes, '__len__') else [axes])
+    x = np.arange(len(samples))
 
     for idx, (col, label) in enumerate(metrics):
         ax = axes[idx]
         vals = safe_col(df, col)
-        ax.bar(samples, vals, color='#5b9bd5', edgecolor='white', width=0.7)
+        ax.bar(x, vals, color='#5b9bd5', edgecolor='white', width=0.7)
         ax.set_title(label, fontweight='bold', fontsize=11)
-        ax.tick_params(axis='x', rotation=45, labelsize=8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
         for spine in ['top', 'right']:
             ax.spines[spine].set_visible(False)
 
@@ -101,50 +131,140 @@ def plot_basic_stats_panel(df, samples):
     return fig
 
 
-def plot_variant_type_stacked(df, samples):
+VARIANT_COLORS = {
+    'no_variant':          '#d9d9d9',
+    'deletion':            '#8da0cb',
+    'insertion':           '#fc8d62',
+    'insertion_deletion':  '#e78ac3',
+    'multiple_deletions':  '#a6d854',
+    'multiple_insertions': '#ffd92f',
+    'AAV_insertion':       '#e41a1c',
+    'SNV':                 '#66c2a5'
+}
+
+def get_snv_col(df):
+    for col in ['SNV', 'snv', 'SNVs', 'snvs']:
+        if col in df.columns and safe_col(df, col).sum() > 0:
+            return col
+    return None
+
+def plot_variant_type_edited_reads(df, samples):
     """
-    Stacked bar chart of variant types normalised to edited reads
-    (inspired by R lines 317-365).
+    Stacked bar chart of variant types normalised to edited reads.
+    Includes SNVs if present. Excludes samples with 0 edited reads.
     """
-    # Compute component percentages over edited reads
-    ed = safe_col(df, 'edited_reads').replace(0, np.nan)
-    aavins = safe_col(df, 'aavins')
+    ed_raw = safe_col(df, 'edited_reads')
+    valid_mask = ed_raw > 0
+    if not valid_mask.any():
+        return None
+
+    sub_df = df[valid_mask].copy()
+    sub_samples = [s for s, v in zip(samples, valid_mask) if v]
+
+    ed = safe_col(sub_df, 'edited_reads').replace(0, np.nan)
+    aavins = safe_col(sub_df, 'aavins')
 
     components = {}
     for vtype in ['deletion', 'insertion_deletion', 'multiple_deletions', 'multiple_insertions']:
-        if vtype in df.columns:
-            components[vtype] = df[vtype] / ed * 100
-    # Insertion minus AAV
-    if 'insertion' in df.columns:
-        components['insertion'] = (df['insertion'] - aavins) / ed * 100
+        if vtype in sub_df.columns:
+            components[vtype] = sub_df[vtype] / ed * 100
+    if 'insertion' in sub_df.columns:
+        components['insertion'] = (sub_df['insertion'] - aavins).clip(lower=0) / ed * 100
     components['AAV_insertion'] = aavins / ed * 100
+
+    snv_col = get_snv_col(sub_df)
+    if snv_col:
+        components['SNV'] = sub_df[snv_col] / ed * 100
 
     if not components:
         return None
 
-    comp_df = pd.DataFrame(components, index=df.index).fillna(0)
-    # Normalise each sample to 100%
+    comp_df = pd.DataFrame(components, index=sub_df.index).fillna(0)
     row_sums = comp_df.sum(axis=1).replace(0, np.nan)
     comp_norm = comp_df.div(row_sums, axis=0) * 100
 
-    fig, ax = plt.subplots(figsize=(max(8, len(samples) * 0.8), 5))
-    cmap = plt.colormaps.get('Set2', plt.cm.Set2)
-    colors = [cmap(i) for i in range(len(comp_norm.columns))]
-    bottom = np.zeros(len(samples))
+    x = np.arange(len(sub_samples))
+    fig, ax = plt.subplots(figsize=(max(8, len(sub_samples) * 0.8), 5))
+    colors = [VARIANT_COLORS.get(col, '#999999') for col in comp_norm.columns]
+    bottom = np.zeros(len(sub_samples))
 
     for i, col in enumerate(comp_norm.columns):
         vals = comp_norm[col].values
-        ax.bar(samples, vals, bottom=bottom, label=col, color=colors[i], edgecolor='white', linewidth=0.3)
+        ax.bar(x, vals, bottom=bottom, label=col, color=colors[i], edgecolor='white', linewidth=0.3)
         bottom += vals
 
     ax.set_ylabel('Edited Reads (%)')
-    ax.set_title('Variant Type Composition (normalised)', fontweight='bold')
+    ax.set_title('Variant Type Composition (% of edited reads)', fontweight='bold')
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=9)
-    ax.tick_params(axis='x', rotation=45, labelsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(sub_samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
     for spine in ['top', 'right']:
         ax.spines[spine].set_visible(False)
     fig.tight_layout()
     return fig
+
+
+def plot_variant_type_all_reads(df, samples):
+    """
+    Stacked bar chart of variant types including unedited (no variant) reads,
+    normalised to total reads.
+    Includes SNVs if present. Excludes samples with 0 edited reads (no_variant = 100%).
+    """
+    ed_raw = safe_col(df, 'edited_reads')
+    valid_mask = ed_raw > 0
+    if not valid_mask.any():
+        return None
+
+    sub_df = df[valid_mask].copy()
+    sub_samples = [s for s, v in zip(samples, valid_mask) if v]
+
+    tot = safe_col(sub_df, 'total_reads').replace(0, np.nan)
+    aavins = safe_col(sub_df, 'aavins')
+
+    components = {}
+    if 'no_variant' in sub_df.columns:
+        components['no_variant'] = sub_df['no_variant'] / tot * 100
+    elif 'total_reads' in sub_df.columns and 'edited_reads' in sub_df.columns:
+        components['no_variant'] = (sub_df['total_reads'] - sub_df['edited_reads']) / tot * 100
+
+    for vtype in ['deletion', 'insertion_deletion', 'multiple_deletions', 'multiple_insertions']:
+        if vtype in sub_df.columns:
+            components[vtype] = sub_df[vtype] / tot * 100
+    if 'insertion' in sub_df.columns:
+        components['insertion'] = (sub_df['insertion'] - aavins).clip(lower=0) / tot * 100
+    components['AAV_insertion'] = aavins / tot * 100
+
+    snv_col = get_snv_col(sub_df)
+    if snv_col:
+        components['SNV'] = sub_df[snv_col] / tot * 100
+
+    if not components:
+        return None
+
+    comp_df = pd.DataFrame(components, index=sub_df.index).fillna(0)
+    row_sums = comp_df.sum(axis=1).replace(0, np.nan)
+    comp_norm = comp_df.div(row_sums, axis=0) * 100
+
+    x = np.arange(len(sub_samples))
+    fig, ax = plt.subplots(figsize=(max(8, len(sub_samples) * 0.8), 5))
+    colors = [VARIANT_COLORS.get(col, '#999999') for col in comp_norm.columns]
+    bottom = np.zeros(len(sub_samples))
+
+    for i, col in enumerate(comp_norm.columns):
+        vals = comp_norm[col].values
+        ax.bar(x, vals, bottom=bottom, label=col, color=colors[i], edgecolor='white', linewidth=0.3)
+        bottom += vals
+
+    ax.set_ylabel('Total Reads (%)')
+    ax.set_title('Variant Type Composition (% of total reads)', fontweight='bold')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=9)
+    ax.set_xticks(x)
+    ax.set_xticklabels(sub_samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
+    for spine in ['top', 'right']:
+        ax.spines[spine].set_visible(False)
+    fig.tight_layout()
+    return fig
+
 
 
 def plot_variant_subtype_stacked(df, samples):
@@ -182,6 +302,7 @@ def plot_variant_subtype_stacked(df, samples):
     row_sums = sub_df.sum(axis=1).replace(0, np.nan)
     sub_norm = sub_df.div(row_sums, axis=0) * 100
 
+    x = np.arange(len(samples))
     fig, ax = plt.subplots(figsize=(max(8, len(samples) * 0.8), 5))
     colors = ['#66c2a5', '#fc8d62', '#e78ac3', '#8da0cb', '#a6d854',
               '#ffd92f', '#e5c494', '#b3b3b3', '#e41a1c']
@@ -190,13 +311,14 @@ def plot_variant_subtype_stacked(df, samples):
     for i, col in enumerate(sub_norm.columns):
         vals = sub_norm[col].values
         c = colors[i % len(colors)]
-        ax.bar(samples, vals, bottom=bottom, label=col, color=c, edgecolor='white', linewidth=0.3)
+        ax.bar(x, vals, bottom=bottom, label=col, color=c, edgecolor='white', linewidth=0.3)
         bottom += vals
 
     ax.set_ylabel('Edited Reads (%)')
     ax.set_title('Variant Sub-type Composition (normalised)', fontweight='bold')
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=9)
-    ax.tick_params(axis='x', rotation=45, labelsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
     for spine in ['top', 'right']:
         ax.spines[spine].set_visible(False)
     fig.tight_layout()
@@ -244,7 +366,7 @@ def plot_variant_subtype_heatmap(df, samples):
     fig, ax = plt.subplots(figsize=(max(6, len(samples) * 0.6), max(3, len(subtypes) * 0.5)))
     im = ax.imshow(mat_z, aspect='auto', cmap='RdBu_r', vmin=-3, vmax=3)
     ax.set_xticks(range(len(samples)))
-    ax.set_xticklabels(samples, rotation=45, ha='right', fontsize=8)
+    ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
     ax.set_yticks(range(len(subtypes)))
     ax.set_yticklabels(list(subtypes.keys()), fontsize=9)
     ax.set_title('Variant Sub-types (Z-score)', fontweight='bold')
@@ -266,13 +388,15 @@ def plot_mh_scores(df, samples):
     if not present:
         return None, None
 
+    x = np.arange(len(samples))
     # Over deletions (raw score)
     fig_del, axes_del = plt.subplots(1, len(present), figsize=(3.5 * len(present), 4), squeeze=False)
     for i, col in enumerate(present):
         ax = axes_del[0, i]
-        ax.bar(samples, safe_col(df, col), color='#70ad47', edgecolor='white', width=0.7)
+        ax.bar(x, safe_col(df, col), color='#70ad47', edgecolor='white', width=0.7)
         ax.set_title(col, fontweight='bold', fontsize=9)
-        ax.tick_params(axis='x', rotation=45, labelsize=7)
+        ax.set_xticks(x)
+        ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=7)
         for spine in ['top', 'right']:
             ax.spines[spine].set_visible(False)
     fig_del.suptitle('MH Scores (per deletion)', fontsize=12, fontweight='bold', y=1.02)
@@ -287,9 +411,10 @@ def plot_mh_scores(df, samples):
         for i, col in enumerate(present):
             ax = axes_edit[0, i]
             vals = safe_col(df, col) * td / ed
-            ax.bar(samples, vals.fillna(0), color='#4472c4', edgecolor='white', width=0.7)
+            ax.bar(x, vals.fillna(0), color='#4472c4', edgecolor='white', width=0.7)
             ax.set_title(col, fontweight='bold', fontsize=9)
-            ax.tick_params(axis='x', rotation=45, labelsize=7)
+            ax.set_xticks(x)
+            ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=7)
             for spine in ['top', 'right']:
                 ax.spines[spine].set_visible(False)
         fig_edit.suptitle('MH Scores (normalised over edits)', fontsize=12, fontweight='bold', y=1.02)
@@ -317,7 +442,7 @@ def plot_ins_del_sizes(df, samples):
         ax.bar(x + width / 2, safe_col(df, 'mean_del_size'), width, label='Mean Del Size', color='#4472c4')
 
     ax.set_xticks(x)
-    ax.set_xticklabels(samples, rotation=45, ha='right', fontsize=8)
+    ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
     ax.set_ylabel('Size (bp)')
     ax.set_title('Mean Insertion vs Deletion Size', fontweight='bold')
     ax.legend()
@@ -336,23 +461,26 @@ def plot_blast_aav(df, samples):
     if not (has_blast or has_pct):
         return None
 
+    x = np.arange(len(samples))
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     if has_blast:
-        axes[0].bar(samples, safe_col(df, 'BLAST_AAV'), color='#c00000', edgecolor='white')
+        axes[0].bar(x, safe_col(df, 'BLAST_AAV'), color='#c00000', edgecolor='white')
         axes[0].set_title('BLAST AAV Hits (total reads)', fontweight='bold')
         axes[0].set_ylabel('Count')
-        axes[0].tick_params(axis='x', rotation=45, labelsize=8)
+        axes[0].set_xticks(x)
+        axes[0].set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
         for spine in ['top', 'right']:
             axes[0].spines[spine].set_visible(False)
     else:
         axes[0].set_visible(False)
 
     if has_pct:
-        axes[1].bar(samples, safe_col(df, 'aavins_pct'), color='#c00000', edgecolor='white')
+        axes[1].bar(x, safe_col(df, 'aavins_pct'), color='#c00000', edgecolor='white')
         axes[1].set_title('AAV Integration (% of edited reads)', fontweight='bold')
         axes[1].set_ylabel('Percentage (%)')
-        axes[1].tick_params(axis='x', rotation=45, labelsize=8)
+        axes[1].set_xticks(x)
+        axes[1].set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
         for spine in ['top', 'right']:
             axes[1].spines[spine].set_visible(False)
     else:
@@ -367,22 +495,25 @@ def plot_diversity(df, samples):
     if 'diversity_75' not in df.columns:
         return None
 
+    x = np.arange(len(samples))
     fig, ax = plt.subplots(figsize=(max(8, len(samples) * 0.8), 5))
-    ax.bar(samples, safe_col(df, 'diversity_75'), color='#7030a0', edgecolor='white', width=0.7)
+    ax.bar(x, safe_col(df, 'diversity_75'), color='#7030a0', edgecolor='white', width=0.7)
     ax.set_title('Deletion Diversity (types for 75% of events)', fontweight='bold')
     ax.set_ylabel('Number of Deletion Types')
-    ax.tick_params(axis='x', rotation=45, labelsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(samples, rotation=45, ha='right', rotation_mode='anchor', fontsize=8)
     for spine in ['top', 'right']:
         ax.spines[spine].set_visible(False)
     fig.tight_layout()
     return fig
 
 
+
 # ---------------------------------------------------------------------------
 # Main report generation
 # ---------------------------------------------------------------------------
 
-def generate_report(summary_csv, output_html, params_json=None):
+def generate_report(summary_csv, output_html, params_json=None, samples_csv=None):
     df = pd.read_csv(summary_csv)
 
     # Load parameters
@@ -394,9 +525,23 @@ def generate_report(summary_csv, output_html, params_json=None):
         except Exception as e:
             print(f"Warning: Could not read parameters JSON: {e}")
 
+    # Resolve sample order from samples CSV if provided or from parameters
+    if not samples_csv and params_dict.get('csv'):
+        samples_csv = params_dict.get('csv')
+
+    sample_order = load_sample_order(samples_csv)
+
     # Resolve sample name column
     if 'sample_name' not in df.columns and 'sample' in df.columns:
         df['sample_name'] = df['sample']
+
+    if sample_order and 'sample_name' in df.columns:
+        df['sample_name'] = df['sample_name'].astype(str)
+        order_map = {name: idx for idx, name in enumerate(sample_order)}
+        max_idx = len(sample_order) + 1000
+        df['sort_key'] = df['sample_name'].map(lambda x: order_map.get(x, max_idx))
+        df = df.sort_values('sort_key').drop(columns=['sort_key']).reset_index(drop=True)
+
     sample_names = df['sample_name'].astype(str).tolist()
 
     # ------------------------------------------------------------------
@@ -411,13 +556,23 @@ def generate_report(summary_csv, output_html, params_json=None):
         'insertion/deletion percentages, AAV integration and microhomology.', fig_to_b64(fig)))
     plt.close(fig)
 
-    # 2. Variant type composition (stacked)
-    fig = plot_variant_type_stacked(df, sample_names)
-    if fig:
-        plot_sections.append(('Variant Type Composition',
+    # 2a. Variant type composition over all reads (including no variant)
+    fig_all = plot_variant_type_all_reads(df, sample_names)
+    if fig_all:
+        plot_sections.append(('Variant Type Composition (% of total reads)',
+            'Stacked bar chart of variant types including unedited (no variant) reads and SNVs, '
+            'normalised to total reads. Samples with 0% editing (100% no variant) are excluded.', fig_to_b64(fig_all)))
+        plt.close(fig_all)
+
+    # 2b. Variant type composition over edited reads
+    fig_ed = plot_variant_type_edited_reads(df, sample_names)
+    if fig_ed:
+        plot_sections.append(('Variant Type Composition (% of edited reads)',
             'Stacked bar chart of variant types (deletion, insertion, '
-            'insertion/deletion, multiple events, AAV insertions) normalised to edited reads.', fig_to_b64(fig)))
-        plt.close(fig)
+            'insertion/deletion, multiple events, AAV insertions, SNVs) normalised to edited reads. '
+            'Samples with 0% editing are excluded.', fig_to_b64(fig_ed)))
+        plt.close(fig_ed)
+
 
     # 3. Variant sub-type composition (stacked)
     fig = plot_variant_subtype_stacked(df, sample_names)
@@ -439,7 +594,15 @@ def generate_report(summary_csv, output_html, params_json=None):
     # ------------------------------------------------------------------
     # Alignment PNGs
     # ------------------------------------------------------------------
-    alignment_files = sorted([f for f in os.listdir('.') if f.endswith('_alignments.png')])
+    alignment_files = [f for f in os.listdir('.') if f.endswith('_alignments.png')]
+    # Sort alignment files matching sample_names order
+    def get_align_sort_key(filename):
+        for idx, name in enumerate(sample_names):
+            if filename.startswith(f"{name}_") or filename.startswith(f"{name}."):
+                return idx
+        return len(sample_names) + 100
+    alignment_files.sort(key=get_align_sort_key)
+
     alignment_html = ""
     for f in alignment_files:
         title = f.replace('_alignments.png', '')
@@ -537,8 +700,10 @@ def generate_report(summary_csv, output_html, params_json=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: generate_html_report.py <summary.csv> <output.html> [params.json]")
+        print("Usage: generate_html_report.py <summary.csv> <output.html> [params.json] [samples.csv]")
         sys.exit(1)
 
     params_file = sys.argv[3] if len(sys.argv) > 3 else None
-    generate_report(sys.argv[1], sys.argv[2], params_file)
+    samples_csv_file = sys.argv[4] if len(sys.argv) > 4 else None
+    generate_report(sys.argv[1], sys.argv[2], params_file, samples_csv_file)
+

@@ -499,6 +499,24 @@ def main():
         sys.exit(1)
     
     print("Calculating microhomology for each deletion...")
+
+    # --- Early exit for samples with no deletions (e.g. SNV-only, insertion-only) ---
+    if len(deletions_df) == 0:
+        print("No deletion events — skipping MH calculations.")
+        # Write empty output files so downstream steps always have consistent inputs
+        pd.DataFrame(columns=['pos','size','type','sample']).to_csv(
+            'deletion_microhomology_detailed.csv', index=False)
+        pd.DataFrame().to_csv('sample_microhomology_summary.csv', index=False)
+        # Still produce merged_summary.csv from step2 summary alone
+        print("Merging with step2 summary and save to: merged_summary.csv")
+        try:
+            step2_df = pd.read_csv("summary_df.tsv", sep="\t")
+            step2_df.to_csv("merged_summary.csv", index=False)
+        except Exception as e:
+            print(f"Warning: Could not read step2 summary: {e}")
+        print("Analysis complete!")
+        return
+
     # Calculate microhomology for each deletion
     mh_results = []
     for idx, row in deletions_df.iterrows():

@@ -16,15 +16,16 @@ if (length(args) < 9) {
   stop("Usage: Rscript script.R <direction> <csv_file> <amplicon> <cutSite> <blat.T.name> <blat.T.start> <blat.T.end> <restable> <instable>")
 }
 
-direction <- args[1]
-csv_file <- args[2]
-amplicon <- args[3]
-cutSite <- as.numeric(args[4])
-blat.T.name <- args[5]
+direction  <- args[1]
+csv_file   <- args[2]
+amplicon   <- args[3]
+cutSite    <- as.numeric(args[4])
+blat.T.name  <- args[5]
 blat.T.start <- as.numeric(args[6])
-blat.T.end <- as.numeric(args[7])
-restable <- args[8]
-instable <- args[9]
+blat.T.end   <- as.numeric(args[7])
+restable   <- args[8]
+instable   <- args[9]
+keep_snvs  <- if (length(args) >= 10) tolower(trimws(args[10])) == "true" else FALSE
 
 library("CrispRVariants")
 library("GenomicRanges")
@@ -121,7 +122,9 @@ for (param_name in param_dirs) {
       byType <- crispr.set$classifyVariantsByType()
       byType <- unlist(byType)
       var_counts <- cbind.data.frame(var_counts, byType)
-      var_counts$byType[var_counts$byType == "SNV"] <- "no variant"
+      if (!keep_snvs) {
+        var_counts$byType[var_counts$byType == "SNV"] <- "no variant"
+      }
       
       cat("    Variant types:\n")
       print(table(var_counts$byType))
