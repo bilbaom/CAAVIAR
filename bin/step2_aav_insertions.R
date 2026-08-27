@@ -30,8 +30,8 @@ classify_indels <- function(cigar_labels) {
     insertions <- sum(operation_types == "I")
     deletions <- sum(operation_types == "D")
     
-    if (insertions > 1 && deletions == 0) return("multiple insertions")
-    else if (insertions >= 1 && deletions >= 1) return("insertion/deletion")
+    if (insertions > 1 && deletions == 0) return("multiple_insertions")
+    else if (insertions >= 1 && deletions >= 1) return("insertion_deletion")
     else if (insertions == 1 && deletions == 0) return("insertion")
     else return("other")
   }
@@ -63,7 +63,7 @@ merge_by_sample_id <- function(df, id_col = "idxs", sample_col = "sample", seq_c
     df$sample_id <- character(0)
     return(df)
   }
-  
+
   df$sample_id <- paste(df[[sample_col]], df[[id_col]], sep = "_")
   result <- aggregate(
     df[[seq_col]], 
@@ -148,7 +148,7 @@ sequences_info <- extract_sequences_to_fasta(
 
 blast_db_path <- Sys.getenv("BLAST_DB_PATH")
 if (blast_db_path == "") {
-  blast_db_path <- "/home/bilbaom/mhaav25/ref/blast/blastdb"
+  stop("BLAST_DB_PATH environment variable is not set. It must be provided via Nextflow configuration (params.blast_db).")
 }
 
 has_sequences <- nrow(sequences_info) > 0
@@ -169,10 +169,18 @@ if (!has_sequences) {
 # FIX: Hardcoded path removed
 blast_file <- "blastResults.csv"
 
+aav_summary <- data.frame(
+  sample = samplenames,
+  AAV_insertion = 0,
+  AAV_insertion_deletion = 0,
+  AAV_multiple_insertions = 0,
+  aavins = 0,
+  stringsAsFactors = FALSE
+)
+
 if (!has_sequences || !file.exists(blast_file) || file.info(blast_file)$size == 0) {
   message("No BLAST results. Setting AAV insertions = 0.")
   insseq_merged$aavins <- rep(0, nrow(insseq_merged))
-  totalins <- data.frame(Var1 = samplenames, Var2 = TRUE, Freq = 0)
 } else {
   blastResults <- read.table(blast_file, sep = "\t", header = FALSE)
   sequences_info_aav <- sequences_info[sequences_info$id %in% unique(blastResults$V1),]
@@ -185,23 +193,44 @@ if (!has_sequences || !file.exists(blast_file) || file.info(blast_file)$size == 
   insseq_merged$aavins <- sapply(insseq_merged$seq, count_matches)
   insseq_merged_aav <- insseq_merged[insseq_merged$aavins > 0,]
   
-  totalins <- table(insseq_merged$sample, insseq_merged$aavins > 0)
-  totalins <- as.data.frame(totalins)
-  totalins <- totalins[totalins$Var2 == TRUE, ]
+  if (nrow(insseq_merged_aav) > 0) {
+    for (s in samplenames) {
+      s_aav <- insseq_merged_aav[insseq_merged_aav$sample == s, ]
+      aav_summary[aav_summary$sample == s, "AAV_insertion"] <- sum(s_aav$type == "insertion")
+      aav_summary[aav_summary$sample == s, "AAV_insertion_deletion"] <- sum(s_aav$type == "insertion_deletion")
+      aav_summary[aav_summary$sample == s, "AAV_multiple_insertions"] <- sum(s_aav$type == "multiple_insertions")
+      aav_summary[aav_summary$sample == s, "aavins"] <- nrow(s_aav)
+    }
+  }
 }
 
 # Sanitize categories
 varcounts$byType.g1 <- gsub("[ /]", "_", varcounts$byType.g1)
 categories <- unique(varcounts$byType.g1)
 total_reads <- colSums(varcounts[, samplenames, drop = FALSE])
-cat_reads <- sapply(samplenames, function(s) tapply(varcounts[[s]], varcounts$byType.g1, sum))
 
-complete_cat_reads <- matrix(0, nrow = length(categories), ncol = length(samplenames))
-rownames(complete_cat_reads) <- categories
-colnames(complete_cat_reads) <- samplenames
-existing_categories <- rownames(cat_reads)
-complete_cat_reads[existing_categories, ] <- cat_reads
-cat_reads <- complete_cat_reads
+# Compute raw category counts per sample safely (avoiding R sapply dimension drop when length(categories) == 1)
+cat_reads <- matrix(0, nrow = length(categories), ncol = length(samplenames),
+                    dimnames = list(categories, samplenames))
+for (cat_name in categories) {
+  mask <- varcounts$byType.g1 == cat_name
+  for (s in samplenames) {
+    cat_reads[cat_name, s] <- sum(varcounts[mask, s], na.rm = TRUE)
+  }
+}
+
+# Subtract AAV counts from specific indel categories
+for (s in samplenames) {
+  if ("insertion" %in% rownames(cat_reads)) {
+    cat_reads["insertion", s] <- pmax(0, cat_reads["insertion", s] - aav_summary[aav_summary$sample == s, "AAV_insertion"])
+  }
+  if ("insertion_deletion" %in% rownames(cat_reads)) {
+    cat_reads["insertion_deletion", s] <- pmax(0, cat_reads["insertion_deletion", s] - aav_summary[aav_summary$sample == s, "AAV_insertion_deletion"])
+  }
+  if ("multiple_insertions" %in% rownames(cat_reads)) {
+    cat_reads["multiple_insertions", s] <- pmax(0, cat_reads["multiple_insertions", s] - aav_summary[aav_summary$sample == s, "AAV_multiple_insertions"])
+  }
+}
 
 no_variant_reads <- if ("no_variant" %in% rownames(cat_reads)) cat_reads["no_variant", ] else rep(0, length(samplenames))
 edited_reads <- total_reads - no_variant_reads
@@ -221,11 +250,16 @@ summary_df <- data.frame(
 ncat <- length(categories)
 colnames(summary_df)[(ncol(summary_df)-ncat+1):ncol(summary_df)] <- paste0(categories, "_pct")
 
-summary_df <- merge(summary_df, totalins, by.x = "sample", by.y = "Var1", all.x = TRUE)
-summary_df$aavins <- ifelse(is.na(summary_df$Freq), 0, summary_df$Freq)
-summary_df$Freq <- NULL
-summary_df$Var2 <- NULL
-summary_df$aavins_pct <- summary_df$aavins / summary_df$edited_reads * 100
+summary_df <- merge(summary_df, aav_summary, by = "sample", all.x = TRUE)
+summary_df$AAV_insertion <- ifelse(is.na(summary_df$AAV_insertion), 0, summary_df$AAV_insertion)
+summary_df$AAV_insertion_deletion <- ifelse(is.na(summary_df$AAV_insertion_deletion), 0, summary_df$AAV_insertion_deletion)
+summary_df$AAV_multiple_insertions <- ifelse(is.na(summary_df$AAV_multiple_insertions), 0, summary_df$AAV_multiple_insertions)
+summary_df$aavins <- ifelse(is.na(summary_df$aavins), 0, summary_df$aavins)
+
+summary_df$AAV_insertion_pct <- ifelse(summary_df$total_reads > 0, summary_df$AAV_insertion / summary_df$total_reads * 100, 0)
+summary_df$AAV_insertion_deletion_pct <- ifelse(summary_df$total_reads > 0, summary_df$AAV_insertion_deletion / summary_df$total_reads * 100, 0)
+summary_df$AAV_multiple_insertions_pct <- ifelse(summary_df$total_reads > 0, summary_df$AAV_multiple_insertions / summary_df$total_reads * 100, 0)
+summary_df$aavins_pct <- ifelse(summary_df$edited_reads > 0, summary_df$aavins / summary_df$edited_reads * 100, 0)
 
 #### 3.1: INS/DEL STATISTICS ####
 parse_indel_string <- function(s) {
@@ -303,7 +337,7 @@ summary_df$target <- experiment
 write.table(summary_df, file = "summary_df.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 write.table(insseq_merged, file = "insseq_merged.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
 
-varcounts_del <- varcounts[varcounts$byType.g1=="deletion",]
+varcounts_del <- varcounts[varcounts$byType.g1 %in% c("deletion", "insertion_deletion", "multiple_deletions"),]
 indel_strings_del <- rownames(varcounts_del)
 all_events_del <- list()
 
@@ -314,6 +348,8 @@ for (i in seq_along(indel_strings_del)) {
   
   events <- parse_indel_string(s)
   if (is.null(events) || nrow(events) == 0) next
+  events <- events[events$type == "D", , drop = FALSE]
+  if (nrow(events) == 0) next
   
   for (sample in samplenames) {
     n <- varcounts_del[i, sample]

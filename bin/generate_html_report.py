@@ -132,15 +132,24 @@ def plot_basic_stats_panel(df, samples):
 
 
 VARIANT_COLORS = {
-    'no_variant':          '#d9d9d9',
-    'deletion':            '#8da0cb',
-    'insertion':           '#fc8d62',
-    'insertion_deletion':  '#e78ac3',
-    'multiple_deletions':  '#a6d854',
-    'multiple_insertions': '#ffd92f',
-    'AAV_insertion':       '#e41a1c',
-    'SNV':                 '#66c2a5'
-}
+    'no_variant':               '#d9d9d9',
+    'SNV':                      '#737373',
+    'deletion':                 '#8da0cb',
+    'multiple_deletions':       '#5b6f9e',
+    'insertion':                '#fdbf6f',
+    'multiple_insertions':      '#e6820c',
+    'insertion_deletion':       '#66c2a5',
+    'AAV_insertion':            '#d6604d',
+    'AAV_multiple_insertions':  '#b2182b',
+    'AAV_insertion_deletion':   '#99304f',
+  }
+
+def order_by_palette(comp_df, palette=VARIANT_COLORS):
+    """Reorder a components DataFrame's columns to match the palette dict order."""
+    ordered = [c for c in palette if c in comp_df.columns]
+    remaining = [c for c in comp_df.columns if c not in ordered]
+    return comp_df[ordered + remaining]
+
 
 def get_snv_col(df):
     for col in ['SNV', 'snv', 'SNVs', 'snvs']:
@@ -162,24 +171,29 @@ def plot_variant_type_edited_reads(df, samples):
     sub_samples = [s for s, v in zip(samples, valid_mask) if v]
 
     ed = safe_col(sub_df, 'edited_reads').replace(0, np.nan)
-    aavins = safe_col(sub_df, 'aavins')
+
+    variant_types = [
+        'deletion', 'insertion', 'insertion_deletion',
+        'multiple_deletions', 'multiple_insertions',
+        'AAV_insertion', 'AAV_insertion_deletion', 'AAV_multiple_insertions'
+    ]
 
     components = {}
-    for vtype in ['deletion', 'insertion_deletion', 'multiple_deletions', 'multiple_insertions']:
+    for vtype in variant_types:
         if vtype in sub_df.columns:
-            components[vtype] = sub_df[vtype] / ed * 100
-    if 'insertion' in sub_df.columns:
-        components['insertion'] = (sub_df['insertion'] - aavins).clip(lower=0) / ed * 100
-    components['AAV_insertion'] = aavins / ed * 100
+            components[vtype] = safe_col(sub_df, vtype) / ed * 100
+        elif vtype == 'AAV_insertion' and 'aavins' in sub_df.columns and 'AAV_insertion_deletion' not in sub_df.columns:
+            components['AAV_insertion'] = safe_col(sub_df, 'aavins') / ed * 100
 
     snv_col = get_snv_col(sub_df)
     if snv_col:
-        components['SNV'] = sub_df[snv_col] / ed * 100
+        components['SNV'] = safe_col(sub_df, snv_col) / ed * 100
 
     if not components:
         return None
 
     comp_df = pd.DataFrame(components, index=sub_df.index).fillna(0)
+    comp_df = order_by_palette(comp_df)
     row_sums = comp_df.sum(axis=1).replace(0, np.nan)
     comp_norm = comp_df.div(row_sums, axis=0) * 100
 
@@ -219,29 +233,34 @@ def plot_variant_type_all_reads(df, samples):
     sub_samples = [s for s, v in zip(samples, valid_mask) if v]
 
     tot = safe_col(sub_df, 'total_reads').replace(0, np.nan)
-    aavins = safe_col(sub_df, 'aavins')
 
     components = {}
     if 'no_variant' in sub_df.columns:
-        components['no_variant'] = sub_df['no_variant'] / tot * 100
+        components['no_variant'] = safe_col(sub_df, 'no_variant') / tot * 100
     elif 'total_reads' in sub_df.columns and 'edited_reads' in sub_df.columns:
-        components['no_variant'] = (sub_df['total_reads'] - sub_df['edited_reads']) / tot * 100
+        components['no_variant'] = (safe_col(sub_df, 'total_reads') - safe_col(sub_df, 'edited_reads')) / tot * 100
 
-    for vtype in ['deletion', 'insertion_deletion', 'multiple_deletions', 'multiple_insertions']:
+    variant_types = [
+        'deletion', 'insertion', 'insertion_deletion',
+        'multiple_deletions', 'multiple_insertions',
+        'AAV_insertion', 'AAV_insertion_deletion', 'AAV_multiple_insertions'
+    ]
+
+    for vtype in variant_types:
         if vtype in sub_df.columns:
-            components[vtype] = sub_df[vtype] / tot * 100
-    if 'insertion' in sub_df.columns:
-        components['insertion'] = (sub_df['insertion'] - aavins).clip(lower=0) / tot * 100
-    components['AAV_insertion'] = aavins / tot * 100
+            components[vtype] = safe_col(sub_df, vtype) / tot * 100
+        elif vtype == 'AAV_insertion' and 'aavins' in sub_df.columns and 'AAV_insertion_deletion' not in sub_df.columns:
+            components['AAV_insertion'] = safe_col(sub_df, 'aavins') / tot * 100
 
     snv_col = get_snv_col(sub_df)
     if snv_col:
-        components['SNV'] = sub_df[snv_col] / tot * 100
+        components['SNV'] = safe_col(sub_df, snv_col) / tot * 100
 
     if not components:
         return None
 
     comp_df = pd.DataFrame(components, index=sub_df.index).fillna(0)
+    comp_df = order_by_palette(comp_df)
     row_sums = comp_df.sum(axis=1).replace(0, np.nan)
     comp_norm = comp_df.div(row_sums, axis=0) * 100
 
